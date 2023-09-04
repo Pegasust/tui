@@ -18,10 +18,12 @@
         (devshells "shells")
         # Application Development
         (installables "app")
+        (functions "lib")
       ];
     }
     {
       packages = std.harvest self ["tui" "app"];
       devShells = std.harvest self ["repo" "shells"];
+      lib = std.harvest self ["tui" "lib"];
     };
 }
