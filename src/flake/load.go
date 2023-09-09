@@ -10,7 +10,7 @@ import (
 	"github.com/paisano-nix/paisano/env"
 )
 
-func LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd, *bytes.Buffer, error) {
+func (r *FlakeRegistry) LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd, *bytes.Buffer, error) {
 
 	nix, err := getNix()
 	if err != nil {
@@ -36,7 +36,7 @@ func LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd, *bytes.Buffer, er
 		"--no-write-lock-file",
 		"--no-warn-dirty",
 		"--accept-flake-config",
-		flakeRegistry(".") + ".init." + currentSystem}
+		r.InitFlakeRef(currentSystem)}
 	cmd := exec.Command(nix, args...)
 	cmd.Stdin = devNull
 	cmd.Stdout = buf

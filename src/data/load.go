@@ -1,4 +1,4 @@
-package main
+package data
 
 import (
 	"bytes"
@@ -8,12 +8,10 @@ import (
 	"io"
 
 	"github.com/TylerBrock/colorjson"
-
-	"github.com/paisano-nix/paisano/data"
 )
 
-func LoadJson(r io.Reader) (*data.Root, error) {
-	var root = &data.Root{}
+func LoadJson(r io.Reader) (*Root, error) {
+	var root = &Root{}
 
 	var r2 bytes.Buffer
 	r1 := io.TeeReader(r, &r2)

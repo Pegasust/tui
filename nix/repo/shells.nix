@@ -49,6 +49,10 @@ They conveniently also generate config files in their startup hook.
           package = inputs.nixpkgs.gopls;
           category = "dev";
         }
+        {
+          package = inputs.cells.tui.app.default;
+          category = "bleeding edge";
+        }
       ]
       ++ inputs.nixpkgs.lib.optionals inputs.nixpkgs.stdenv.isLinux [
         {
@@ -56,5 +60,34 @@ They conveniently also generate config files in their startup hook.
           category = "dev";
         }
       ];
+    env =
+      [
+        {
+          name = "GO11MODULE";
+          value = "auto";
+        }
+      ]
+      ++ inputs.nixpkgs.lib.optionals inputs.nixpkgs.stdenv.isDarwin [
+        {
+          name = "PATH";
+          # the pinned version of devshell or std doesn't support `prefix`
+          # that well (it got resolved into `:$PATH`)
+          eval = let
+            inherit (inputs.nixpkgs) xcbuild;
+            xcbuild_path = inputs.nixpkgs.lib.makeBinPath [
+              xcbuild
+              "${xcbuild}/Toolchains/XcodeDefault.xctoolchain"
+            ];
+          in "${xcbuild_path}:$PATH";
+        }
+      ];
   };
+
+  trad = let
+    inherit (inputs.nixpkgs) mkShell go gotools gopls cocogitto mdbook delve;
+    app = inputs.cells.tui.app.default;
+  in
+    mkShell {
+      buildInputs = [go gotools gopls cocogitto mdbook delve app];
+    };
 }

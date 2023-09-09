@@ -11,6 +11,7 @@ import (
 )
 
 type RunActionCmd struct {
+	FlakeRegistry
 	System string
 	Cell   string
 	Block  string
@@ -118,5 +119,5 @@ func (c *RunActionCmd) getArgs(currentSystem string) ([]string, error) {
 }
 
 func (c *RunActionCmd) renderFragmentFor(system string) string {
-	return tprintf(c, flakeRegistry(".")+".actions."+system+".{{.Cell}}.{{.Block}}.{{.Target}}.{{.Action}}")
+	return tprintf(c, c.FlakeRegistry.FlakeRegistry+".actions."+system+".{{.Cell}}.{{.Block}}.{{.Target}}.{{.Action}}")
 }

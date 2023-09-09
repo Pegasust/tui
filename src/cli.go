@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/oriser/regroup"
 
 	"github.com/rsteube/carapace"
-	"github.com/rsteube/carapace/pkg/style"
 	"github.com/spf13/cobra"
 
 	"github.com/paisano-nix/paisano/data"
@@ -18,18 +19,89 @@ import (
 )
 
 type Spec struct {
-	Cell   string `regroup:"cell,required"`
-	Block  string `regroup:"block,required"`
-	Target string `regroup:"target,required"`
-	Action string `regroup:"action,required"`
+	FlakeRef string `regroup:"flake_ref,optional"`
+	Registry string `regroup:"registry,optional"`
+	Cell     string `regroup:"cell,required"`
+	Block    string `regroup:"block,required"`
+	Target   string `regroup:"target,required"`
+	Action   string `regroup:"action,required"`
 }
 
-var re = regroup.MustCompile(`^//(?P<cell>[^/]+)/(?P<block>[^/]+)/(?P<target>.+):(?P<action>[^:]+)`)
+var Use = fmt.Sprintf("%[1]s [flakeref]//[cell]/[block]/[target]:[action] [args...]", argv0)
+
+var re = regroup.MustCompile(`^(?:(?P<flake_ref>[^#]*))?#?(?:(?P<registry>[^/]+))?//(?P<cell>[^/]+)/(?P<block>[^/]+)/(?P<target>.+):(?P<action>[^:]+)`)
+
+func parseSpec(specRef string) (*Spec, error) {
+	s := &Spec{}
+	if err := re.MatchToTarget(specRef, s); err != nil {
+		return nil, fmt.Errorf("invalid argument format: %s, should follow %s: %w", specRef, Use, err)
+	}
+	if s.FlakeRef == "" {
+		s.FlakeRef = "."
+	}
+
+	if strings.HasPrefix(s.FlakeRef, data.FlakeHubProto+":") {
+		// NOTE: handle the case of fh:org/repo/semver since not all Nix versions support this
+		// https://flakehub.com/docs
+		s.FlakeRef = s.FlakeRef[len(data.FlakeHubProto)+1:]
+		tup := strings.SplitN(s.FlakeRef, "/", 3)
+		org, repo, semver := tup[0], tup[1], (func() string {
+			if len(tup) == 2 {
+				return "*"
+			} else {
+				return tup[2]
+			}
+		})()
+		fh, err := url.Parse("https://api.flakehub.com")
+		if err != nil {
+			return nil, err
+		}
+
+		// "f" is from API call reverse eng
+		s.FlakeRef = fh.JoinPath("f", org, repo, strings.Join([]string{
+			semver, "tar", "gz",
+		}, ".")).String()
+	}
+
+	if s.Registry == "" {
+		s.Registry = flake.BrandedRegistry
+	}
+	return s, nil
+}
+
+func ParseRunActionCmd(specRef string) (*flake.RunActionCmd, error) {
+	s, err := parseSpec(specRef)
+	if err != nil {
+		return nil, err
+	}
+	return &flake.RunActionCmd{
+		FlakeRegistry: flake.FlakeRegistry{
+			FlakeRef:      s.FlakeRef,
+			Registry:      s.Registry,
+			FlakeRegistry: fmt.Sprintf("%s#%s", s.FlakeRef, s.Registry),
+		},
+		System: forSystem,
+		Cell:   s.Cell,
+		Block:  s.Block,
+		Target: s.Target,
+		Action: s.Action,
+	}, nil
+}
+
+func RunEActionCmd(f func(cmd *cobra.Command, args []string, a *flake.RunActionCmd) error) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		act, err := ParseRunActionCmd(args[0])
+		if err != nil {
+			return fmt.Errorf("Error parsing arg0: %w", err)
+		}
+		return f(cmd, args, act)
+	}
+}
 
 var forSystem string
 
 var rootCmd = &cobra.Command{
-	Use:                   fmt.Sprintf("%[1]s //[cell]/[block]/[target]:[action] [args...]", argv0),
+	Use:                   Use,
 	DisableFlagsInUseLine: true,
 	Version:               fmt.Sprintf("%s (%s)", buildVersion, buildCommit),
 	Short:                 fmt.Sprintf("%[1]s is the CLI / TUI companion for %[2]s", argv0, project),
@@ -41,30 +113,16 @@ var rootCmd = &cobra.Command{
 Enable autocompletion via '%[1]s _carapace <shell>'.
 For more instructions, see: https://rsteube.github.io/carapace/carapace/gen/hiddenSubcommand.html
 `, argv0, project),
-	Args: func(cmd *cobra.Command, args []string) error {
-		s := &Spec{}
-		if err := re.MatchToTarget(args[0], s); err != nil {
-			return fmt.Errorf("invalid argument format: %s", args[0])
-		}
+	Args: RunEActionCmd(func(_ *cobra.Command, _ []string, _ *flake.RunActionCmd) error {
 		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		s := &Spec{}
-		if err := re.MatchToTarget(args[0], s); err != nil {
-			return err
-		}
-		command := flake.RunActionCmd{
-			System: forSystem,
-			Cell:   s.Cell,
-			Block:  s.Block,
-			Target: s.Target,
-			Action: s.Action}
+	}),
+	RunE: RunEActionCmd(func(_ *cobra.Command, args []string, command *flake.RunActionCmd) error {
 		if err := command.Exec(args[1:]); err != nil {
 			return err
 		}
 		return nil
 
-	},
+	}),
 }
 var reCacheCmd = &cobra.Command{
 	Use:   "re-cache",
@@ -74,7 +132,9 @@ Use this command to cold-start or refresh the CLI cache.
 The TUI does this automatically, but the command completion needs manual initialization of the CLI cache.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, key, loadCmd, buf, err := flake.LoadFlakeCmd()
+		// TODO: support remote caching, maybe in XDG cache
+		local := flake.LocalFlakeRegistry()
+		c, key, loadCmd, buf, err := local.LoadFlakeCmd()
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
 		}
@@ -91,7 +151,9 @@ Returns a non-zero exit code and an error message if the repository is not a val
 The TUI does this automatically.`, project),
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, _, loadCmd, _, err := flake.LoadFlakeCmd()
+		// TODO: support remote caching, maybe in XDG cache
+		local := flake.LocalFlakeRegistry()
+		_, _, loadCmd, _, err := local.LoadFlakeCmd()
 		loadCmd.Args = append(loadCmd.Args, "--trace-verbose")
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
@@ -113,14 +175,16 @@ Shows a list of all available targets. Can be used as an alternative to the TUI.
 Also loads the CLI cache, if no cache is found. Reads the cache, otherwise.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cache, key, loadCmd, buf, err := flake.LoadFlakeCmd()
+		// TODO: support remote caching, maybe in XDG cache
+		local := flake.LocalFlakeRegistry()
+		cache, key, loadCmd, buf, err := local.LoadFlakeCmd()
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
 		}
 		cached, _, err := cache.GetBytes(*key)
 		var root *data.Root
 		if err == nil {
-			root, err = LoadJson(bytes.NewReader(cached))
+			root, err = data.LoadJson(bytes.NewReader(cached))
 			if err != nil {
 				return fmt.Errorf("while loading cached json: %w", err)
 			}
@@ -128,7 +192,7 @@ Also loads the CLI cache, if no cache is found. Reads the cache, otherwise.`,
 			loadCmd.Run()
 			bufA := &bytes.Buffer{}
 			r := io.TeeReader(buf, bufA)
-			root, err = LoadJson(r)
+			root, err = data.LoadJson(r)
 			if err != nil {
 				return fmt.Errorf("while loading json (cmd: '%v'): %w", loadCmd, err)
 			}
@@ -163,97 +227,5 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 	carapace.Gen(rootCmd).Standalone()
 	// completes: '//cell/block/target:action'
-	carapace.Gen(rootCmd).PositionalCompletion(
-		carapace.ActionCallback(func(ctx carapace.Context) carapace.Action {
-			cache, key, _, _, err := flake.LoadFlakeCmd()
-			if err != nil {
-				return carapace.ActionMessage(fmt.Sprintf("%v\n", err))
-			}
-			cached, _, err := cache.GetBytes(*key)
-			var root *data.Root
-			if err == nil {
-				root, err = LoadJson(bytes.NewReader(cached))
-				if err != nil {
-					return carapace.ActionMessage(fmt.Sprintf("%v\n", err))
-				}
-			} else {
-				return carapace.ActionMessage(fmt.Sprintf("No completion cache: please initialize by running '%[1]s re-cache'.", argv0))
-			}
-			var cells = []string{}
-			var blocks = map[string][]string{}
-			var targets = map[string]map[string][]string{}
-			var actions = map[string]map[string]map[string][]string{}
-			for _, c := range root.Cells {
-				blocks[c.Name] = []string{}
-				targets[c.Name] = map[string][]string{}
-				actions[c.Name] = map[string]map[string][]string{}
-				cells = append(cells, c.Name, "cell")
-				for _, b := range c.Blocks {
-					targets[c.Name][b.Name] = []string{}
-					actions[c.Name][b.Name] = map[string][]string{}
-					blocks[c.Name] = append(blocks[c.Name], b.Name, "block")
-					for _, t := range b.Targets {
-						actions[c.Name][b.Name][t.Name] = []string{}
-						targets[c.Name][b.Name] = append(targets[c.Name][b.Name], t.Name, t.Description())
-						for _, a := range t.Actions {
-							actions[c.Name][b.Name][t.Name] = append(
-								actions[c.Name][b.Name][t.Name],
-								a.Name,
-								a.Description(),
-							)
-						}
-					}
-				}
-			}
-			return carapace.ActionMultiParts("/", func(c carapace.Context) carapace.Action {
-				switch len(c.Parts) {
-				// start with <tab>; no typing
-				case 0:
-					return carapace.ActionValuesDescribed(
-						cells...,
-					).Invoke(c).Prefix("//").Suffix("/").ToA().Style(
-						style.Of(style.Bold, style.Carapace.Highlight(1)))
-				// only a single / typed
-				case 1:
-					return carapace.ActionValuesDescribed(
-						cells...,
-					).Invoke(c).Prefix("/").Suffix("/").ToA()
-				// start typing cell
-				case 2:
-					return carapace.ActionValuesDescribed(
-						cells...,
-					).Invoke(c).Suffix("/").ToA().Style(
-						style.Carapace.Highlight(1))
-				// start typing block
-				case 3:
-					return carapace.ActionValuesDescribed(
-						blocks[c.Parts[2]]...,
-					).Invoke(c).Suffix("/").ToA().Style(
-						style.Carapace.Highlight(2))
-				// start typing target
-				case 4:
-					return carapace.ActionMultiParts(":", func(d carapace.Context) carapace.Action {
-						switch len(d.Parts) {
-						// start typing target
-						case 0:
-							return carapace.ActionValuesDescribed(
-								targets[c.Parts[2]][c.Parts[3]]...,
-							).Invoke(c).Suffix(":").ToA().Style(
-								style.Carapace.Highlight(3))
-							// start typing action
-						case 1:
-							return carapace.ActionValuesDescribed(
-								actions[c.Parts[2]][c.Parts[3]][d.Parts[0]]...,
-							).Invoke(c).ToA()
-						default:
-							return carapace.ActionValues()
-						}
-					})
-				default:
-					return carapace.ActionValues()
-				}
-			})
-
-		}),
-	)
+	data.CarapaceRootCmdCompletion(carapace.Gen(rootCmd), argv0)
 }

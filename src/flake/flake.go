@@ -11,9 +11,30 @@ import (
 )
 
 var (
-	registry      = "__std" // keep for now for historic reasons
-	flakeRegistry = func(flake string) string { return fmt.Sprintf("%[2]s#%[1]s", registry, flake) }
+	BrandedRegistry = "__std" // keep for now for historic reasons
 )
+
+type FlakeRegistry struct {
+	FlakeRef      string
+	Registry      string
+	FlakeRegistry string
+}
+
+func LocalFlakeRegistry() FlakeRegistry {
+	return FlakeRegistry{
+		FlakeRef:      "./",
+		Registry:      BrandedRegistry,
+		FlakeRegistry: fmt.Sprintf("%s#%s", "./", BrandedRegistry),
+	}
+}
+
+func (r *FlakeRegistry) InitFlakeRef(system string) string {
+	return fmt.Sprintf("%s.init.%s", r.FlakeRegistry, system)
+}
+
+func (r *FlakeRegistry) RefCellsFrom() string {
+	return fmt.Sprintf("%s.cellsFrom", r.FlakeRegistry)
+}
 
 type outt struct {
 	drvPath string            `json:"drvPath"`
@@ -22,7 +43,7 @@ type outt struct {
 
 var CellsFrom = lazy.Of[string]{
 	New: func() string {
-		if s, err := getCellsFrom(); err != nil {
+		if s, err := getLocalCells(); err != nil {
 			return "${cellsFrom}"
 		} else {
 			return s
@@ -68,13 +89,13 @@ func getCurrentSystem() (string, error) {
 	return currentSystemStr, nil
 }
 
-func getCellsFrom() (string, error) {
+func (r *FlakeRegistry) getCells() (string, error) {
 	nix, err := getNix()
 	if err != nil {
 		return "", err
 	}
 	cellsFrom, err := exec.Command(
-		nix, "eval", "--raw", flakeRegistry(".")+".cellsFrom",
+		nix, "eval", "--raw", r.RefCellsFrom(),
 	).Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -83,4 +104,11 @@ func getCellsFrom() (string, error) {
 		return "", err
 	}
 	return string(cellsFrom[:]), nil
+}
+
+func getLocalCells() (string, error) {
+	// NB: has to create temporary var here: "Cannot take pointer off `LocalFlakeRegistry`"
+	// sounds horrifyingly similar to C++'s rvalue/xvalue :)
+	reg := LocalFlakeRegistry()
+	return reg.getCells()
 }

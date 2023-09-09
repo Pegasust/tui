@@ -171,7 +171,8 @@ type cellLoadingFatalErrMsg struct{ err error }
 
 func (m *Tui) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	c, key, cmd, buf, err := flake.LoadFlakeCmd()
+	local := flake.LocalFlakeRegistry()
+	c, key, cmd, buf, err := local.LoadFlakeCmd()
 	if err != nil {
 		return func() tea.Msg { return cellLoadingFatalErrMsg{err} }
 	}
@@ -180,7 +181,7 @@ func (m *Tui) Init() tea.Cmd {
 		// a cache hit ...
 		// ... load the cache
 		cmds = append(cmds, func() tea.Msg {
-			root, err := LoadJson(bytes.NewReader(cached))
+			root, err := data.LoadJson(bytes.NewReader(cached))
 			if err != nil {
 				return cellLoadingFatalErrMsg{err}
 			}
@@ -196,7 +197,7 @@ func (m *Tui) Init() tea.Cmd {
 			}
 			bufA := &bytes.Buffer{}
 			r := io.TeeReader(buf, bufA)
-			root, err := LoadJson(r)
+			root, err := data.LoadJson(r)
 			// renew cache under all circumstances (might have updated)
 			c.PutBytes(*key, bufA.Bytes())
 			if err != nil {
@@ -213,7 +214,7 @@ func (m *Tui) Init() tea.Cmd {
 			}
 			bufA := &bytes.Buffer{}
 			r := io.TeeReader(buf, bufA)
-			root, err := LoadJson(r)
+			root, err := data.LoadJson(r)
 			c.PutBytes(*key, bufA.Bytes())
 			if err != nil {
 				return cellLoadingFatalErrMsg{err}

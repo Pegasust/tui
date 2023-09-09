@@ -1,12 +1,16 @@
-.std
-result
+
+# nixago-auto-created: mdbook-build-folder
+docs/build/**
 
 # nixago: ignore-linked-files
-adrgen.config.yml
 lefthook.yml
 .editorconfig
 .conform.yaml
+adrgen.config.yml
 treefmt.toml
 
-# nixago-auto-created: mdbook-build-folder
-docs/build
+# nix build default output
+result
+
+# nix repl `:bl`
+repl-result-out
