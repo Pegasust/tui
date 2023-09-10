@@ -29,11 +29,14 @@ type Spec struct {
 
 var Use = fmt.Sprintf("%[1]s [flakeref]//[cell]/[block]/[target]:[action] [args...]", argv0)
 
-var re = regroup.MustCompile(`^(?:(?P<flake_ref>[^#]*))?#?(?:(?P<registry>[^/]+))?//(?P<cell>[^/]+)/(?P<block>[^/]+)/(?P<target>.+):(?P<action>[^:]+)`)
+var paisanoRegistryRegex = `(?:(?P<flake_ref>[^#]*))?#?(?:(?P<registry>[^/]+))?`
+var paisanoRegistryRe = regroup.MustCompile("^" + paisanoRegistryRegex)
+
+var specRe = regroup.MustCompile("^" + paisanoRegistryRegex + `//(?P<cell>[^/]+)/(?P<block>[^/]+)/(?P<target>.+):(?P<action>[^:]+)`)
 
 func parseSpec(specRef string) (*Spec, error) {
 	s := &Spec{}
-	if err := re.MatchToTarget(specRef, s); err != nil {
+	if err := specRe.MatchToTarget(specRef, s); err != nil {
 		return nil, fmt.Errorf("invalid argument format: %s, should follow %s: %w", specRef, Use, err)
 	}
 	if s.FlakeRef == "" {
@@ -75,10 +78,10 @@ func ParseRunActionCmd(specRef string) (*flake.RunActionCmd, error) {
 		return nil, err
 	}
 	return &flake.RunActionCmd{
-		FlakeRegistry: flake.FlakeRegistry{
-			FlakeRef:      s.FlakeRef,
-			Registry:      s.Registry,
-			FlakeRegistry: fmt.Sprintf("%s#%s", s.FlakeRef, s.Registry),
+		PaisanoRegistry: flake.PaisanoRegistry{
+			FlakeRef:        s.FlakeRef,
+			Registry:        s.Registry,
+			PaisanoRegistry: fmt.Sprintf("%s#%s", s.FlakeRef, s.Registry),
 		},
 		System: forSystem,
 		Cell:   s.Cell,
@@ -124,16 +127,67 @@ For more instructions, see: https://rsteube.github.io/carapace/carapace/gen/hidd
 
 	}),
 }
+
+func ParsePaisanoRegistry(reg string) (*flake.PaisanoRegistry, error) {
+	rv := flake.PaisanoRegistry{}
+	if err := paisanoRegistryRe.MatchToTarget(reg, &rv); err != nil {
+		return nil, fmt.Errorf("invalid argument format: %s, should follow %s: %w", reg, Use, err)
+	}
+	if rv.FlakeRef == "" {
+		rv.FlakeRef = "."
+	}
+
+	if strings.HasPrefix(rv.FlakeRef, data.FlakeHubProto+":") {
+		// NOTE: handle the case of fh:org/repo/semver since not all Nix versions support this
+		// https://flakehub.com/docs
+		rv.FlakeRef = rv.FlakeRef[len(data.FlakeHubProto)+1:]
+		tup := strings.SplitN(rv.FlakeRef, "/", 3)
+		org, repo, semver := tup[0], tup[1], (func() string {
+			if len(tup) == 2 {
+				return "*"
+			} else {
+				return tup[2]
+			}
+		})()
+		fh, err := url.Parse("https://api.flakehub.com")
+		if err != nil {
+			return nil, err
+		}
+
+		// "f" is from API call reverse eng
+		rv.FlakeRef = fh.JoinPath("f", org, repo, strings.Join([]string{
+			semver, "tar", "gz",
+		}, ".")).String()
+	}
+
+	if rv.Registry == "" {
+		rv.Registry = flake.BrandedRegistry
+	}
+	rv.PaisanoRegistry = fmt.Sprintf("%s#%s", rv.FlakeRef, rv.Registry)
+	return &rv, nil
+}
+
+func singleFlakeRefArg(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("%s expects single flake ref, got %d", cmd.CommandPath(), len(args))
+	}
+	if len(args) == 1 {
+		_, err := ParsePaisanoRegistry(args[0])
+		return err
+	}
+	return nil
+}
+
 var reCacheCmd = &cobra.Command{
 	Use:   "re-cache",
 	Short: "Refresh the CLI cache.",
 	Long: `Refresh the CLI cache.
 Use this command to cold-start or refresh the CLI cache.
 The TUI does this automatically, but the command completion needs manual initialization of the CLI cache.`,
-	Args: cobra.NoArgs,
+	Args: singleFlakeRefArg,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// TODO: support remote caching, maybe in XDG cache
-		local := flake.LocalFlakeRegistry()
+		local := flake.LocalPaisanoRegistry()
 		c, key, loadCmd, buf, err := local.LoadFlakeCmd()
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
@@ -149,11 +203,20 @@ var checkCmd = &cobra.Command{
 	Long: fmt.Sprintf(`Validates that the repository conforms to %[1]s.
 Returns a non-zero exit code and an error message if the repository is not a valid %[1]s repository.
 The TUI does this automatically.`, project),
-	Args: cobra.NoArgs,
+	Args: singleFlakeRefArg,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// TODO: support remote caching, maybe in XDG cache
-		local := flake.LocalFlakeRegistry()
-		_, _, loadCmd, _, err := local.LoadFlakeCmd()
+		local_reg := flake.LocalPaisanoRegistry()
+		reg_ref := &local_reg
+		fmt.Printf("args: %v\n", args)
+		if len(args) > 0 {
+			_reg, err := ParsePaisanoRegistry(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid registry %s: %v", args[0], err)
+			}
+			reg_ref = _reg
+		}
+		_, _, loadCmd, _, err := reg_ref.LoadFlakeCmd()
 		loadCmd.Args = append(loadCmd.Args, "--trace-verbose")
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
@@ -162,7 +225,11 @@ The TUI does this automatically.`, project),
 		if err := loadCmd.Run(); err != nil {
 			os.Exit(1)
 		}
-		fmt.Printf("Valid %s repository ✓\n", project)
+		// NOTE: don't need to handle err since it would have failed earlier
+		// under this route
+		prefetchFlakeRef, _ := reg_ref.PrefetchFlakeRef()
+		fmt.Printf("note: %s -> %s\n", reg_ref.FlakeRef, prefetchFlakeRef)
+		fmt.Printf("Valid Paisano repository ✓\n")
 
 		return nil
 	},
@@ -173,10 +240,10 @@ var listCmd = &cobra.Command{
 	Long: `List available targets.
 Shows a list of all available targets. Can be used as an alternative to the TUI.
 Also loads the CLI cache, if no cache is found. Reads the cache, otherwise.`,
-	Args: cobra.NoArgs,
+	Args: singleFlakeRefArg,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// TODO: support remote caching, maybe in XDG cache
-		local := flake.LocalFlakeRegistry()
+		local := flake.LocalPaisanoRegistry()
 		cache, key, loadCmd, buf, err := local.LoadFlakeCmd()
 		if err != nil {
 			return fmt.Errorf("while loading flake (cmd '%v'): %w", loadCmd, err)
@@ -227,5 +294,5 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 	carapace.Gen(rootCmd).Standalone()
 	// completes: '//cell/block/target:action'
-	data.CarapaceRootCmdCompletion(carapace.Gen(rootCmd), argv0)
+	data.PaisanoActionCompletion(carapace.Gen(rootCmd), argv0)
 }

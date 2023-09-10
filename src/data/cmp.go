@@ -378,13 +378,56 @@ func xferDispatch(compe *CompeIndex) carapace.Action {
 	})
 }
 
-func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
+func FlakeRefCompletion(index *CompeIndex, c carapace.Context) carapace.Action {
+	return carapace.Batch(
+		// //<std...>
+		StdPathCompe(index, c),
+		// .#__std//
+		localGitFlakeCompe(index, c),
+		// nixpkgs#__std//
+		flakeRegistryCompe(index, c),
+		// <xfer-protocol>://<...>#__std//
+		xferDispatch(index),
+		// <nix-special>:<...>#__std//
+		carapace.ActionMultiParts(":", func(c carapace.Context) carapace.Action {
+			switch len(c.Parts) {
+			case 0:
+				return carapace.ActionValuesDescribed(
+					FlakeHubProto, "Flakehub",
+					GitHubProto, "GitHub",
+					GitLabProto, "GitLab",
+					SourceHutProto, "SourceHut",
+					NixRegistryProto, "Nix registry",
+				).Invoke(c).Suffix(":").NoSpace()
+			case 1:
+				dispatch := map[string](compeSource){
+					// NOTE: API specs
+					FlakeHubProto:    flakehubFlakeCompe,
+					GitHubProto:      githubFlakeCompe,
+					GitLabProto:      gitlabFlakeCompe,
+					SourceHutProto:   sourcehutFlakeCompe,
+					NixRegistryProto: flakeRegistryCompe,
+				}
+				call, contains := dispatch[c.Parts[0]]
+				if !contains {
+					return carapace.ActionValues()
+				}
+				return call(index, c)
+			default:
+				return carapace.ActionValues()
+				// return carapace.ActionMessage("Ensure Nix support, docs: https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html#types")
+			}
+		}),
+	).Invoke(c).Merge().Action
+}
+
+func PaisanoActionCompletion(cmd *carapace.Carapace, argv0 string) {
 	// completes: '//cell/block/target:action'
 	cmd.PositionalCompletion(
 		carapace.ActionCallback(func(c carapace.Context) carapace.Action {
 
 			// TODO: support remote caching, maybe in XDG cache
-			local := flake.LocalFlakeRegistry()
+			local := flake.LocalPaisanoRegistry()
 			cache, key, _, _, err := local.LoadFlakeCmd()
 			if err != nil {
 				return carapace.ActionMessage(fmt.Sprintf("%v\n", err))
@@ -403,69 +446,24 @@ func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
 			return carapace.ActionMultiParts("#", func(c carapace.Context) carapace.Action {
 				switch len(c.Parts) {
 				case 0:
-					return carapace.Batch(
-						// //<std...>
-						StdPathCompe(&index, c),
-						// .#__std//
-						localGitFlakeCompe(&index, c),
-						// nixpkgs#__std//
-						flakeRegistryCompe(&index, c),
-						// <xfer-protocol>://<...>#__std//
-						xferDispatch(&index),
-						// <nix-special>:<...>#__std//
-						carapace.ActionMultiParts(":", func(c carapace.Context) carapace.Action {
-							switch len(c.Parts) {
-							case 0:
-								return carapace.ActionValuesDescribed(
-									FlakeHubProto, "Flakehub",
-									GitHubProto, "GitHub",
-									GitLabProto, "GitLab",
-									SourceHutProto, "SourceHut",
-									NixRegistryProto, "Nix registry",
-								).Invoke(c).Suffix(":").NoSpace()
-							case 1:
-								dispatch := map[string](compeSource){
-									// NOTE: API specs
-									FlakeHubProto:    flakehubFlakeCompe,
-									GitHubProto:      githubFlakeCompe,
-									GitLabProto:      gitlabFlakeCompe,
-									SourceHutProto:   sourcehutFlakeCompe,
-									NixRegistryProto: flakeRegistryCompe,
-								}
-								call, contains := dispatch[c.Parts[0]]
-								if !contains {
-									return carapace.ActionValues()
-								}
-								return call(&index, c)
-							default:
-								return carapace.ActionValues()
-								// return carapace.ActionMessage("Ensure Nix support, docs: https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html#types")
-							}
-						}),
-					).Invoke(c).Merge().Action
+					return FlakeRefCompletion(&index, c)
 				case 1:
-					return carapace.ActionMultiParts("//", func(c carapace.Context) carapace.Action {
-						switch len(c.Parts) {
-						case 0:
-							// paisano registry
-							well_known := map[string]string{
-								flake.BrandedRegistry: "Custom branded registry",
-								"__std":               "github:divnix/std",
-							}
-							dedup_registries := make([]string, 0, len(well_known)*2)
-							for name, desc := range well_known {
-								dedup_registries = append(dedup_registries, name, desc)
-							}
-							return carapace.ActionValuesDescribed(
-								dedup_registries...,
-							).NoSpace().Invoke(c).ToA()
-						case 1:
-							// std
-							return StdPathCompe(&index, c)
-						default:
-							return carapace.ActionMessage("Should not have more than one '//'").Style(style.Red)
-						}
-					})
+					// paisano registry
+					well_known := map[string]string{
+						flake.BrandedRegistry: "Custom branded registry",
+						"__std":               "github:divnix/std",
+					}
+					dedup_registries := make([]string, 0, len(well_known)*2)
+					for name, desc := range well_known {
+						dedup_registries = append(dedup_registries, name, desc)
+					}
+					registries := carapace.ActionValuesDescribed(
+						dedup_registries...,
+					).NoSpace().Suffix("//").Invoke(c).ToA()
+					return carapace.Batch(
+						registries,
+						StdPathCompe(&index, c),
+					).ToA()
 				default:
 					return carapace.ActionValues()
 				}

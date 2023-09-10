@@ -2,6 +2,7 @@ package flake
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/paisano-nix/paisano/env"
 )
 
-func (r *FlakeRegistry) LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd, *bytes.Buffer, error) {
+func (r *PaisanoRegistry) LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd, *bytes.Buffer, error) {
 
 	nix, err := getNix()
 	if err != nil {
@@ -29,6 +30,7 @@ func (r *FlakeRegistry) LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd
 
 	// load the paisano metadata from the flake
 	buf := new(bytes.Buffer)
+
 	args := []string{
 		"eval",
 		"--json",
@@ -36,7 +38,8 @@ func (r *FlakeRegistry) LoadFlakeCmd() (*cache.Cache, *cache.ActionID, *exec.Cmd
 		"--no-write-lock-file",
 		"--no-warn-dirty",
 		"--accept-flake-config",
-		r.InitFlakeRef(currentSystem)}
+		r.InitPaisanoRef(currentSystem)}
+	fmt.Printf("load flake: %v]\n", args)
 	cmd := exec.Command(nix, args...)
 	cmd.Stdin = devNull
 	cmd.Stdout = buf

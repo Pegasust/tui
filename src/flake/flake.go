@@ -2,6 +2,7 @@ package flake
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -14,26 +15,74 @@ var (
 	BrandedRegistry = "__std" // keep for now for historic reasons
 )
 
-type FlakeRegistry struct {
-	FlakeRef      string
-	Registry      string
-	FlakeRegistry string
+type PaisanoRegistry struct {
+	FlakeRef        string `regroup:"flake_ref,optional"`
+	Registry        string `regroup:"registry,optional"`
+	PaisanoRegistry string
 }
 
-func LocalFlakeRegistry() FlakeRegistry {
-	return FlakeRegistry{
-		FlakeRef:      "./",
-		Registry:      BrandedRegistry,
-		FlakeRegistry: fmt.Sprintf("%s#%s", "./", BrandedRegistry),
+func LocalPaisanoRegistry() PaisanoRegistry {
+	return PaisanoRegistry{
+		FlakeRef:        "./",
+		Registry:        BrandedRegistry,
+		PaisanoRegistry: fmt.Sprintf("%s#%s", "./", BrandedRegistry),
 	}
 }
 
-func (r *FlakeRegistry) InitFlakeRef(system string) string {
-	return fmt.Sprintf("%s.init.%s", r.FlakeRegistry, system)
+func (r *PaisanoRegistry) PrefetchFlakeRef() (string, error) {
+	nix, err := getNix()
+	if err != nil {
+		return "", err
+	}
+	prefetchOut, err := exec.Command(
+		nix, "flake", "prefetch", "--json", r.FlakeRef,
+	).Output()
+	if err != nil {
+		fmterr := err
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmterr = fmt.Errorf("%w, stderr:\n%s", exitErr, exitErr.Stderr)
+		}
+		return "", fmt.Errorf("failed to prefetch, is this a flake? %v", fmterr)
+	}
+
+	hashStore := struct {
+		Hash      string `json:"hash"`
+		StorePath string `json:"storePath"`
+	}{
+		Hash:      "",
+		StorePath: "",
+	}
+	err = json.Unmarshal(prefetchOut, &hashStore)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse prefetch path, programmer's err: %v", err)
+	}
+	return hashStore.StorePath, nil
 }
 
-func (r *FlakeRegistry) RefCellsFrom() string {
-	return fmt.Sprintf("%s.cellsFrom", r.FlakeRegistry)
+func (r *PaisanoRegistry) PrefetchPaisanoReg() (string, error) {
+	localizedFlakeRef, err := r.PrefetchFlakeRef()
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s#%s", localizedFlakeRef, r.Registry), nil
+}
+
+func (r *PaisanoRegistry) PaisanoReg() string {
+	flakeReg, err := r.PrefetchPaisanoReg()
+	if err != nil {
+		// NOTE: warn?
+		flakeReg = r.PaisanoRegistry
+	}
+	return flakeReg
+}
+
+func (r *PaisanoRegistry) InitPaisanoRef(system string) string {
+	return fmt.Sprintf("%s.init.%s", r.PaisanoReg(), system)
+}
+
+func (r *PaisanoRegistry) RefCellsFrom() string {
+	return fmt.Sprintf("%s.cellsFrom", r.PaisanoReg())
 }
 
 var CellsFrom = lazy.Of[string]{
@@ -84,7 +133,7 @@ func getCurrentSystem() (string, error) {
 	return currentSystemStr, nil
 }
 
-func (r *FlakeRegistry) getCells() (string, error) {
+func (r *PaisanoRegistry) getCells() (string, error) {
 	nix, err := getNix()
 	if err != nil {
 		return "", err
@@ -104,6 +153,6 @@ func (r *FlakeRegistry) getCells() (string, error) {
 func getLocalCells() (string, error) {
 	// NB: has to create temporary var here: "Cannot take pointer off `LocalFlakeRegistry`"
 	// sounds horrifyingly similar to C++'s rvalue/xvalue :)
-	reg := LocalFlakeRegistry()
+	reg := LocalPaisanoRegistry()
 	return reg.getCells()
 }

@@ -171,7 +171,7 @@ type cellLoadingFatalErrMsg struct{ err error }
 
 func (m *Tui) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	local := flake.LocalFlakeRegistry()
+	local := flake.LocalPaisanoRegistry()
 	c, key, cmd, buf, err := local.LoadFlakeCmd()
 	if err != nil {
 		return func() tea.Msg { return cellLoadingFatalErrMsg{err} }
