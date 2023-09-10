@@ -36,11 +36,6 @@ func (r *FlakeRegistry) RefCellsFrom() string {
 	return fmt.Sprintf("%s.cellsFrom", r.FlakeRegistry)
 }
 
-type outt struct {
-	drvPath string            `json:"drvPath"`
-	outputs map[string]string `json:"outputs"`
-}
-
 var CellsFrom = lazy.Of[string]{
 	New: func() string {
 		if s, err := getLocalCells(); err != nil {

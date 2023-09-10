@@ -3,7 +3,7 @@ package data
 import (
 	"bytes"
 	"fmt"
-	"net/url"
+	"os"
 	"strings"
 
 	"github.com/paisano-nix/paisano/flake"
@@ -58,52 +58,54 @@ func (root Root) indexRegistry() CompeIndex {
 }
 
 func StdPathCompe(compe *CompeIndex, c carapace.Context) carapace.Action {
-	switch len(c.Parts) {
-	// start with <tab>; no typing
-	case 0:
-		return carapace.ActionValuesDescribed(
-			compe.cells...,
-		).Invoke(c).Suffix("/").ToA().Style(
-			style.Of(style.Bold, style.Carapace.Highlight(1)))
-	// only a single / typed
-	case 1:
-		return carapace.ActionValuesDescribed(
-			compe.cells...,
-		).Invoke(c).Prefix("/").Suffix("/").ToA()
-	// start typing cell
-	case 2:
-		return carapace.ActionValuesDescribed(
-			compe.cells...,
-		).Invoke(c).Suffix("/").ToA().Style(
-			style.Carapace.Highlight(1))
-	// start typing block
-	case 3:
-		return carapace.ActionValuesDescribed(
-			compe.blocks[c.Parts[2]]...,
-		).Invoke(c).Suffix("/").ToA().Style(
-			style.Carapace.Highlight(2))
-	// start typing target
-	case 4:
-		return carapace.ActionMultiParts(":", func(d carapace.Context) carapace.Action {
-			switch len(d.Parts) {
-			// start typing target
-			case 0:
-				return carapace.ActionValuesDescribed(
-					compe.targets[c.Parts[2]][c.Parts[3]]...,
-				).Invoke(c).Suffix(":").ToA().Style(
-					style.Carapace.Highlight(3))
-				// start typing action
-			case 1:
-				return carapace.ActionValuesDescribed(
-					compe.actions[c.Parts[2]][c.Parts[3]][d.Parts[0]]...,
-				).Invoke(c).ToA()
-			default:
-				return carapace.ActionValues()
-			}
-		})
-	default:
-		return carapace.ActionValues()
-	}
+	return carapace.ActionMultiParts("/", func(c carapace.Context) carapace.Action {
+		switch len(c.Parts) {
+		// start with <tab>; no typing
+		case 0:
+			return carapace.ActionValuesDescribed(
+				compe.cells...,
+			).Invoke(c).Prefix("//").Suffix("/").ToA().Style(
+				style.Of(style.Bold, style.Carapace.Highlight(1)))
+		// only a single / typed
+		case 1:
+			return carapace.ActionValuesDescribed(
+				compe.cells...,
+			).Invoke(c).Prefix("/").Suffix("/").ToA()
+		// start typing cell
+		case 2:
+			return carapace.ActionValuesDescribed(
+				compe.cells...,
+			).Invoke(c).Suffix("/").ToA().Style(
+				style.Carapace.Highlight(1))
+		// start typing block
+		case 3:
+			return carapace.ActionValuesDescribed(
+				compe.blocks[c.Parts[2]]...,
+			).Invoke(c).Suffix("/").ToA().Style(
+				style.Carapace.Highlight(2))
+		// start typing target
+		case 4:
+			return carapace.ActionMultiParts(":", func(d carapace.Context) carapace.Action {
+				switch len(d.Parts) {
+				// start typing target
+				case 0:
+					return carapace.ActionValuesDescribed(
+						compe.targets[c.Parts[2]][c.Parts[3]]...,
+					).Invoke(c).Suffix(":").ToA().Style(
+						style.Carapace.Highlight(3))
+					// start typing action
+				case 1:
+					return carapace.ActionValuesDescribed(
+						compe.actions[c.Parts[2]][c.Parts[3]][d.Parts[0]]...,
+					).Invoke(c).ToA()
+				default:
+					return carapace.ActionValues()
+				}
+			})
+		default:
+			return carapace.ActionValues()
+		}
+	})
 }
 
 var (
@@ -117,84 +119,147 @@ var (
 )
 
 func flakehubFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
-	return carapace.ActionMessage("TODO: implement")
+	return carapace.ActionMessage("TODO: implement flakehub")
 }
 
 func githubFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
-	return carapace.ActionMessage("TODO: implement")
+	return carapace.ActionMessage("TODO: implement github")
 }
 
 func gitlabFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
-
-	return carapace.ActionMessage("TODO: implement")
+	return carapace.ActionMessage("TODO: implement gitlab")
 }
 
 func sourcehutFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
-
-	return carapace.ActionMessage("TODO: implement")
+	return carapace.ActionMessage("TODO: implement sourcehut")
 }
 
-func nixRegistryFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
-
-	return carapace.ActionMessage("TODO: implement")
+func flakeRegistryCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+	return carapace.ActionMessage("TODO: implement flake reg")
 }
 
 func gitQueryCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
 	// Requires ctx.Value to point at `?|query=value`
-	q, err := url.ParseQuery(ctx.Value)
-	if err != nil {
-		return carapace.ActionMessage("Programmer err, invalid query: %v", err)
-	}
-	prefix := ""
-	if len(q) != 0 {
-		prefix = "&"
-	}
-	desc := []string{
-		"dir", "subdirectory",
-		"rev", "branch name, tag name, or tagged commit-ish",
-		"ref", "commit-ish reference",
-	}
-
-	descs := make([]string, 0, len(desc))
-	for i := 0; i < len(desc); i += 2 {
-		if !q.Has(desc[i]) {
-			descs = append(descs, desc[i], desc[i+1])
-		}
-	}
-	return carapace.Batch(
-		carapace.ActionValuesDescribed(descs...),
-	).ToA().Prefix(prefix)
+	return carapace.ActionMultiParts("&", func(c carapace.Context) carapace.Action {
+		return carapace.ActionMultiParts("=", func(c carapace.Context) carapace.Action {
+			git_queries := []string{
+				"dir", "subdirectory",
+				"rev", "branch name, tag name, or tagged commit-ish",
+				"ref", "commit-ish reference",
+			}
+			query_vars := carapace.ActionValuesDescribed(
+				git_queries...,
+			).Suffix("=").NoSpace()
+			switch len(c.Parts) {
+			case 0:
+				return query_vars
+			case 1:
+				return carapace.ActionCallback(func(c carapace.Context) carapace.Action {
+					next_query_var := query_vars.Invoke(c).Prefix(c.Value + "&").NoSpace()
+					value_cmp := func() carapace.Action {
+						switch c.Parts[0] {
+						case "dir":
+							return carapace.ActionMessage("git subdirectory")
+						case "rev":
+							return carapace.ActionMessage("branch name, tag name, or tagged commit-ish")
+						case "ref":
+							return carapace.ActionMessage("commit-ish ref")
+						default:
+							return carapace.ActionValues()
+						}
+					}
+					if len(c.Value) == 0 {
+						return value_cmp()
+					}
+					return carapace.Batch(
+						next_query_var,
+						value_cmp(),
+					).Invoke(c).Merge().Action
+				})
+			default:
+				return carapace.ActionValues()
+			}
+		}).Invoke(c).ToA()
+	}).Invoke(ctx).ToA()
 }
 
-func gitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func isDir(path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	return fileInfo.IsDir()
+}
+
+func localGitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
-		switch len(ctx.Parts) {
+		switch len(c.Parts) {
 		case 0:
+			prefix := "?"
+			if isDir(c.Value) && len(c.Value) > 0 {
+				prefix = c.Value + "?"
+			}
 			return carapace.Batch(
-				carapace.ActionValuesDescribed(
-					"git://", "git over path",
-					"git+path://", "git over path",
-					"git+https://", "git over https (Gitea or such)",
-					"git+ssh://", "git over ssh",
-				),
-				carapace.ActionMessage("TODO: complete git compe"),
+				carapace.ActionDirectories(),
+				gitQueryCompe(compe, c).Prefix(prefix),
 			).ToA()
 		case 1:
-			return gitQueryCompe(compe, ctx)
+			return gitQueryCompe(compe, c)
 		default:
 			return carapace.ActionMessage(
-				"Err: Should only have <= 1 '?'",
+				"Not conforming to URL+query. Should have <= 1 '?', got %v",
+				len(c.Parts),
 			).Style(style.Red)
 		}
 	}).Invoke(ctx).ToA()
 }
 
-func fileFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+var localTarballAction = carapace.ActionFiles(
+	".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst",
+)
+
+func localTarballCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+	// As long as you end with .tar.gz, I'm happy
+	return localTarballAction
+}
+
+func remoteGitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
 		switch len(c.Parts) {
 		case 0:
-			// TODO: Filter out only flake directory
-			return carapace.ActionDirectories()
+			// TODO: Filter out only git + flake url
+			return carapace.ActionMessage("[(:username)@|(:username):(:password)@|](:domain.name)((\"/\":path))*")
+		case 1:
+			return gitQueryCompe(compe, ctx)
+		default:
+			return carapace.ActionMessage(
+				"Not conforming to URL+query. Should have <= 1 '?', got %v",
+				len(c.Parts),
+			).Style(style.Red)
+		}
+	})
+}
+
+func remoteTarballCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
+		switch len(c.Parts) {
+		case 0:
+			// TODO: Filter out only git + flake url
+			return carapace.ActionMultiParts("/", func(c carapace.Context) carapace.Action {
+				switch len(c.Parts) {
+				case 0:
+					return carapace.ActionMessage(
+						"[(:username)@|(:username):(:password)@|](:domain.name)",
+					)
+				default:
+					c.Value = strings.Join(c.Parts, "/") + c.Value
+					c.Parts = make([]string, 0, 0)
+					// NOTE: test this, I'm not sure how internal mutation of c is like
+					return localTarballAction.Invoke(c).Chdir(os.DevNull)
+				}
+
+			})
 		case 1:
 			return gitQueryCompe(compe, ctx)
 		default:
@@ -207,6 +272,111 @@ func fileFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
 }
 
 type compeSource func(*CompeIndex, carapace.Context) carapace.Action
+
+func compeSourceFromAction(a carapace.Action) compeSource {
+	return func(_ *CompeIndex, c carapace.Context) carapace.Action {
+		return a.Invoke(c).ToA()
+	}
+}
+
+type compeProduct struct {
+	compeSource
+	desc  string
+	style string
+}
+
+func (prod *compeProduct) overrideCompeSource(cmp compeSource) compeProduct {
+	return compeProduct{
+		compeSource: cmp,
+		desc:        prod.desc,
+		style:       prod.style,
+	}
+}
+func xferDispatch(compe *CompeIndex) carapace.Action {
+	return carapace.ActionMultiParts("://", func(c carapace.Context) carapace.Action {
+		localTarball := compeProduct{
+			compeSource: localTarballCompe,
+			desc:        "Local tarball",
+			style:       style.Yellow,
+		}
+
+		remoteTarball := compeProduct{
+			compeSource: remoteTarballCompe,
+			desc:        "Remote tarball",
+			style:       style.Green,
+		}
+
+		localGitFlake := compeProduct{
+			compeSource: localGitFlakeCompe,
+			desc:        "Local git tree",
+			style:       style.Default,
+		}
+
+		remoteGitFlake := compeProduct{
+			compeSource: remoteGitFlakeCompe,
+			desc:        "Remote git tree",
+			style:       style.Green,
+		}
+
+		remoteMercurialFlake := compeProduct{
+			compeSource: remoteGitFlakeCompe,
+			desc:        "Remote mg tree",
+			style:       style.Cyan,
+		}
+
+		localMercurialFlake := compeProduct{
+			compeSource: localGitFlakeCompe,
+			desc:        "Local mg tree",
+			style:       style.Blue,
+		}
+
+		dispatch := map[string]compeProduct{
+			"file":      localTarball,
+			"file+file": localTarball,
+			// NOTE: this actually hints to `nix` that we acknowledge
+			// tarballs with unconventional extension
+			"tarball+file": localTarball.overrideCompeSource(
+				compeSourceFromAction(carapace.ActionFiles()),
+			),
+
+			"file+http":     remoteTarball,
+			"file+https":    remoteTarball,
+			"tarball+http":  remoteTarball,
+			"tarball+https": remoteTarball,
+			"https":         remoteTarball,
+
+			"path":     localGitFlake,
+			"git+file": localGitFlake,
+			"git+git":  localGitFlake,
+
+			"git+http":  remoteGitFlake,
+			"git+https": remoteGitFlake,
+			"git+ssh":   remoteGitFlake,
+
+			"hg+http":  remoteMercurialFlake,
+			"hg+https": remoteMercurialFlake,
+			"hg+ssh":   remoteMercurialFlake,
+
+			"hg+file": localMercurialFlake,
+		}
+		switch len(c.Parts) {
+		case 0:
+			parts := make([]string, 0, len(dispatch)*3)
+			for k, v := range dispatch {
+				parts = append(parts, k, v.desc, v.style)
+			}
+			return carapace.ActionStyledValuesDescribed(parts...).Suffix("://").NoSpace()
+		case 1:
+			call, contains := dispatch[c.Parts[0]]
+			if !contains {
+				return carapace.ActionValues()
+			}
+			return call.compeSource(compe, c)
+		default:
+			return carapace.ActionMessage("Should not have more than one '://'").Style(style.Red)
+		}
+	})
+}
 
 func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
 	// completes: '//cell/block/target:action'
@@ -233,33 +403,26 @@ func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
 			return carapace.ActionMultiParts("#", func(c carapace.Context) carapace.Action {
 				switch len(c.Parts) {
 				case 0:
-					if strings.HasPrefix(c.Value, "//") {
-						std := StdPathCompe(&index, c)
-						return carapace.Batch(
-							std,
-							carapace.ActionValues("DEBUG: entering std compe"),
-						).ToA()
-					}
 					return carapace.Batch(
-						carapace.ActionMessage("DEBUG: Does this block other values?").Style(style.Red),
-						fileFlakeCompe(&index, c),
+						// //<std...>
+						StdPathCompe(&index, c),
+						// .#__std//
+						localGitFlakeCompe(&index, c),
+						// nixpkgs#__std//
+						flakeRegistryCompe(&index, c),
+						// <xfer-protocol>://<...>#__std//
+						xferDispatch(&index),
+						// <nix-special>:<...>#__std//
 						carapace.ActionMultiParts(":", func(c carapace.Context) carapace.Action {
-
 							switch len(c.Parts) {
 							case 0:
-								return carapace.Batch(
-									carapace.ActionValuesDescribed(
-										FlakeHubProto, "Flakehub",
-										GitHubProto, "GitHub",
-										GitLabProto, "GitLab",
-										SourceHutProto, "SourceHut",
-										NixRegistryProto, "Nix registry",
-									).Suffix(":"),
-									carapace.ActionValuesDescribed(
-										FileProto, "Local file",
-										PathProto, "Local path",
-									).Suffix("://"),
-								).ToA()
+								return carapace.ActionValuesDescribed(
+									FlakeHubProto, "Flakehub",
+									GitHubProto, "GitHub",
+									GitLabProto, "GitLab",
+									SourceHutProto, "SourceHut",
+									NixRegistryProto, "Nix registry",
+								).Invoke(c).Suffix(":").NoSpace()
 							case 1:
 								dispatch := map[string](compeSource){
 									// NOTE: API specs
@@ -267,31 +430,19 @@ func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
 									GitHubProto:      githubFlakeCompe,
 									GitLabProto:      gitlabFlakeCompe,
 									SourceHutProto:   sourcehutFlakeCompe,
-									NixRegistryProto: nixRegistryFlakeCompe,
-
-									FileProto: fileFlakeCompe,
-									PathProto: fileFlakeCompe,
+									NixRegistryProto: flakeRegistryCompe,
 								}
-								call := dispatch[c.Parts[0]]
-								if call == nil {
-									return carapace.ActionMessage("Unknown %s", c.Parts[0])
+								call, contains := dispatch[c.Parts[0]]
+								if !contains {
+									return carapace.ActionValues()
 								}
 								return call(&index, c)
 							default:
-								return carapace.ActionMessage("Ensure Nix support, docs: https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html#types")
+								return carapace.ActionValues()
+								// return carapace.ActionMessage("Ensure Nix support, docs: https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html#types")
 							}
 						}),
-						gitFlakeCompe(&index, c),
-					).ToA().Invoke(c).ToA()
-					// return carapace.ActionValuesDescribed(
-					// 	"./", "Local Flake",
-					// 	"", "Local Flake",
-					// 	"github:", "Github Flake",
-					// 	"fh:", "Flakehub",
-					// 	"git+ssh://", "Git Flake over ssh",
-					// 	"git+https://", "Git Flake over https",
-					// 	"git+http://", "Git Flake over http",
-					// ).Invoke(c).ToA()
+					).Invoke(c).Merge().Action
 				case 1:
 					return carapace.ActionMultiParts("//", func(c carapace.Context) carapace.Action {
 						switch len(c.Parts) {
@@ -319,7 +470,7 @@ func CarapaceRootCmdCompletion(cmd *carapace.Carapace, argv0 string) {
 					return carapace.ActionValues()
 				}
 
-			})
+			}).Invoke(c).ToA()
 
 		}),
 	)
