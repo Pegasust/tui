@@ -151,8 +151,6 @@ func (r *PaisanoRegistry) getCells() (string, error) {
 }
 
 func getLocalCells() (string, error) {
-	// NB: has to create temporary var here: "Cannot take pointer off `LocalFlakeRegistry`"
-	// sounds horrifyingly similar to C++'s rvalue/xvalue :)
 	reg := LocalPaisanoRegistry()
 	return reg.getCells()
 }

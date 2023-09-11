@@ -11,18 +11,14 @@ import (
 	"github.com/rsteube/carapace/pkg/style"
 )
 
-type Completion struct {
-	local CompeIndex
-}
-
-type CompeIndex struct {
+type RootIndex struct {
 	cells   []string
 	blocks  map[string][]string
 	targets map[string]map[string][]string
 	actions map[string]map[string]map[string][]string
 }
 
-func (root Root) indexRegistry() CompeIndex {
+func (root Root) indexRegistry() RootIndex {
 	var cells = []string{}
 	var blocks = map[string][]string{}
 	var targets = map[string]map[string][]string{}
@@ -49,7 +45,7 @@ func (root Root) indexRegistry() CompeIndex {
 			}
 		}
 	}
-	return CompeIndex{
+	return RootIndex{
 		cells:   cells,
 		blocks:  blocks,
 		targets: targets,
@@ -57,7 +53,7 @@ func (root Root) indexRegistry() CompeIndex {
 	}
 }
 
-func StdPathCompe(compe *CompeIndex, c carapace.Context) carapace.Action {
+func StdPathCompe(compe *RootIndex, c carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("/", func(c carapace.Context) carapace.Action {
 		switch len(c.Parts) {
 		// start with <tab>; no typing
@@ -118,27 +114,27 @@ var (
 	PathProto        = "path"
 )
 
-func flakehubFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func flakehubFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMessage("TODO: implement flakehub")
 }
 
-func githubFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func githubFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMessage("TODO: implement github")
 }
 
-func gitlabFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func gitlabFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMessage("TODO: implement gitlab")
 }
 
-func sourcehutFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func sourcehutFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMessage("TODO: implement sourcehut")
 }
 
-func flakeRegistryCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func flakeRegistryCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMessage("TODO: implement flake reg")
 }
 
-func gitQueryCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func gitQueryCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	// Requires ctx.Value to point at `?|query=value`
 	return carapace.ActionMultiParts("&", func(c carapace.Context) carapace.Action {
 		return carapace.ActionMultiParts("=", func(c carapace.Context) carapace.Action {
@@ -192,7 +188,7 @@ func isDir(path string) bool {
 	return fileInfo.IsDir()
 }
 
-func localGitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func localGitFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
 		switch len(c.Parts) {
 		case 0:
@@ -219,12 +215,12 @@ var localTarballAction = carapace.ActionFiles(
 	".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst",
 )
 
-func localTarballCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func localTarballCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	// As long as you end with .tar.gz, I'm happy
 	return localTarballAction
 }
 
-func remoteGitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func remoteGitFlakeCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
 		switch len(c.Parts) {
 		case 0:
@@ -241,7 +237,7 @@ func remoteGitFlakeCompe(compe *CompeIndex, ctx carapace.Context) carapace.Actio
 	})
 }
 
-func remoteTarballCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action {
+func remoteTarballCompe(compe *RootIndex, ctx carapace.Context) carapace.Action {
 	return carapace.ActionMultiParts("?", func(c carapace.Context) carapace.Action {
 		switch len(c.Parts) {
 		case 0:
@@ -271,10 +267,10 @@ func remoteTarballCompe(compe *CompeIndex, ctx carapace.Context) carapace.Action
 	})
 }
 
-type compeSource func(*CompeIndex, carapace.Context) carapace.Action
+type compeSource func(*RootIndex, carapace.Context) carapace.Action
 
 func compeSourceFromAction(a carapace.Action) compeSource {
-	return func(_ *CompeIndex, c carapace.Context) carapace.Action {
+	return func(_ *RootIndex, c carapace.Context) carapace.Action {
 		return a.Invoke(c).ToA()
 	}
 }
@@ -292,7 +288,7 @@ func (prod *compeProduct) overrideCompeSource(cmp compeSource) compeProduct {
 		style:       prod.style,
 	}
 }
-func xferDispatch(compe *CompeIndex) carapace.Action {
+func xferDispatch(compe *RootIndex) carapace.Action {
 	return carapace.ActionMultiParts("://", func(c carapace.Context) carapace.Action {
 		localTarball := compeProduct{
 			compeSource: localTarballCompe,
@@ -378,7 +374,7 @@ func xferDispatch(compe *CompeIndex) carapace.Action {
 	})
 }
 
-func FlakeRefCompletion(index *CompeIndex, c carapace.Context) carapace.Action {
+func FlakeRefCompletion(index *RootIndex, c carapace.Context) carapace.Action {
 	return carapace.Batch(
 		// //<std...>
 		StdPathCompe(index, c),
@@ -425,7 +421,6 @@ func PaisanoActionCompletion(cmd *carapace.Carapace, argv0 string) {
 	// completes: '//cell/block/target:action'
 	cmd.PositionalCompletion(
 		carapace.ActionCallback(func(c carapace.Context) carapace.Action {
-
 			// TODO: support remote caching, maybe in XDG cache
 			local := flake.LocalPaisanoRegistry()
 			cache, key, _, _, err := local.LoadFlakeCmd()
@@ -435,7 +430,7 @@ func PaisanoActionCompletion(cmd *carapace.Carapace, argv0 string) {
 			cached, _, err := cache.GetBytes(*key)
 			var root *Root
 			if err == nil {
-				root, err = LoadJson(bytes.NewReader(cached))
+				root, err = LoadLocalRoot(bytes.NewReader(cached))
 				if err != nil {
 					return carapace.ActionMessage(fmt.Sprintf("%v\n", err))
 				}

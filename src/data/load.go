@@ -10,7 +10,7 @@ import (
 	"github.com/TylerBrock/colorjson"
 )
 
-func LoadJson(r io.Reader) (*Root, error) {
+func LoadLocalRoot(r io.Reader) (*Root, error) {
 	var root = &Root{}
 
 	var r2 bytes.Buffer

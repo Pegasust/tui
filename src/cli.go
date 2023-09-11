@@ -95,7 +95,7 @@ func RunEActionCmd(f func(cmd *cobra.Command, args []string, a *flake.RunActionC
 	return func(cmd *cobra.Command, args []string) error {
 		act, err := ParseRunActionCmd(args[0])
 		if err != nil {
-			return fmt.Errorf("Error parsing arg0: %w", err)
+			return fmt.Errorf("error parsing action cmd: %w", err)
 		}
 		return f(cmd, args, act)
 	}
